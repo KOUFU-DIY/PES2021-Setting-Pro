@@ -1,0 +1,252 @@
+<Window x:Class="PesPadHub.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{DynamicResource S.GameSettings}"
+        Width="640" Height="700" MinWidth="560" MinHeight="520"
+        Language="zh-CN" FontFamily="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Window.Resources>
+        <!-- "显示" 页的分组框: 标题在上, 内容往里缩一截, 照游戏设置程序的版式 -->
+        <Style x:Key="GroupTitle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style x:Key="GroupBody" TargetType="Grid">
+            <Setter Property="Margin" Value="18,0,18,0" />
+        </Style>
+
+        <!-- 自绘的页签头: 选中的那个加粗并带下划线, 不依赖主题的 TabItem -->
+        <Style x:Key="PageTab" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="4,6" />
+            <Setter Property="Margin" Value="0,0,28,0" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <StackPanel Background="Transparent">
+                            <ContentPresenter x:Name="Text" Margin="{TemplateBinding Padding}" Opacity="0.6" />
+                            <Rectangle x:Name="Underline" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource GoBrush}" Visibility="Hidden" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Text" Property="Opacity" Value="1" />
+                                <Setter TargetName="Text" Property="TextElement.FontWeight" Value="SemiBold" />
+                                <Setter TargetName="Underline" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Text" Property="Opacity" Value="0.9" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16,8,16,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="4,0,0,10">
+            <RadioButton x:Name="TabDisplay" Style="{StaticResource PageTab}" GroupName="Pages" IsChecked="True"
+                         Content="{DynamicResource S.TabDisplay}" Checked="Page_Changed" AutomationProperties.AutomationId="TabDisplay" />
+            <RadioButton x:Name="TabPlayers" Style="{StaticResource PageTab}" GroupName="Pages"
+                         Content="{DynamicResource S.TabPlayers}" Checked="Page_Changed" AutomationProperties.AutomationId="TabPlayers" />
+            <RadioButton x:Name="TabAudio" Style="{StaticResource PageTab}" GroupName="Pages"
+                         Content="{DynamicResource S.TabAudio}" Checked="Page_Changed" AutomationProperties.AutomationId="TabAudio" />
+            <RadioButton x:Name="TabOnline" Style="{StaticResource PageTab}" GroupName="Pages"
+                         Content="{DynamicResource S.TabOnline}" Checked="Page_Changed" AutomationProperties.AutomationId="TabOnline" />
+        </StackPanel>
+
+        <!-- ───── 音频 ───── -->
+        <ScrollViewer x:Name="AudioPage" Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.AudioBuffer}" />
+                        <ComboBox x:Name="AudioBufferBox" Margin="18,0,18,0" MinWidth="120" HorizontalAlignment="Left"
+                                  AutomationProperties.AutomationId="AudioBuffer" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                    <Button Content="{DynamicResource S.Reload}" Height="30" Padding="10,0" Click="ReloadGame_Click" />
+                    <Button Content="{DynamicResource S.SaveToGame}" Height="30" Padding="10,0" Margin="6,0,0,0" Click="SaveAudio_Click"
+                            AutomationProperties.AutomationId="SaveAudio" ToolTip="{DynamicResource S.TipSave}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ───── 在线 ───── -->
+        <ScrollViewer x:Name="OnlinePage" Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.P2P}" />
+                        <CheckBox x:Name="P2PAutoCheck" Margin="18,0,18,0" Content="{DynamicResource S.Auto}" AutomationProperties.AutomationId="P2PAuto" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.UdpPort}" />
+                        <CheckBox x:Name="UdpAutoCheck" Margin="18,0,18,10" Content="{DynamicResource S.Auto}" AutomationProperties.AutomationId="UdpAuto"
+                                  Checked="UdpAuto_Changed" Unchecked="UdpAuto_Changed" />
+                        <!-- 两个端口上下排, 右边是说明; 勾了自动就不能改, 和游戏设置程序一样 -->
+                        <Grid Style="{StaticResource GroupBody}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel x:Name="UdpPortsPanel">
+                                <TextBox x:Name="UdpPort1Box" Width="120" MaxLength="5" AutomationProperties.AutomationId="UdpPort1" />
+                                <TextBox x:Name="UdpPort2Box" Width="120" MaxLength="5" Margin="0,8,0,0" AutomationProperties.AutomationId="UdpPort2" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="{DynamicResource S.UdpPortNote}" TextWrapping="Wrap" Margin="16,6,0,0" VerticalAlignment="Top" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.VoiceChat}" />
+                        <CheckBox x:Name="VoiceChatCheck" Margin="18,0,18,12" Content="{DynamicResource S.VoiceChatEnabled}" AutomationProperties.AutomationId="VoiceChat" />
+                        <!-- 打开系统的声音设置, 对应官方的 "声音属性" -->
+                        <Button Content="{DynamicResource S.SoundProperties}" Margin="18,0,18,0" Width="260" Height="30" HorizontalAlignment="Left" Click="SoundProperties_Click" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                    <Button Content="{DynamicResource S.Reload}" Height="30" Padding="10,0" Click="ReloadGame_Click" />
+                    <Button Content="{DynamicResource S.SaveToGame}" Height="30" Padding="10,0" Margin="6,0,0,0" Click="SaveOnline_Click"
+                            AutomationProperties.AutomationId="SaveOnline" ToolTip="{DynamicResource S.TipSave}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ───── 显示: 版式照着游戏设置程序的 "显示" 页, 一个设置一个分组框 ───── -->
+        <ScrollViewer x:Name="DisplayPage" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 画面模式 -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.ScreenMode}" />
+                        <Grid Style="{StaticResource GroupBody}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <RadioButton x:Name="ScreenWindowed" GroupName="Screen" Content="{DynamicResource S.Windowed}" />
+                            <RadioButton x:Name="ScreenFullscreen" Grid.Column="1" GroupName="Screen" Content="{DynamicResource S.Fullscreen}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 分辨率 -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.Resolution}" />
+                        <ComboBox x:Name="ResolutionBox" Margin="18,0,18,0" HorizontalAlignment="Stretch"
+                                  ToolTip="{Binding ElementName=ResolutionNote, Path=Text}" />
+                                <TextBlock x:Name="ResolutionNote" Style="{StaticResource Note}" Margin="18,4,0,0" FontSize="12" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 帧速率 -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.FrameRate}" />
+                        <Grid Style="{StaticResource GroupBody}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{DynamicResource S.FpsGame}" Margin="12,0,0,8" VerticalAlignment="Center" />
+                            <RadioButton x:Name="GameFps60" Grid.Row="0" Grid.Column="1" GroupName="GameFps" Content="60fps" Margin="0,0,0,8" />
+                            <RadioButton x:Name="GameFps30" Grid.Row="0" Grid.Column="2" GroupName="GameFps" Content="30fps" Margin="0,0,0,8" />
+                            <TextBlock Grid.Row="1" Text="{DynamicResource S.FpsReplay}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                            <RadioButton x:Name="ReplayFps60" Grid.Row="1" Grid.Column="1" GroupName="ReplayFps" Content="60fps" />
+                            <RadioButton x:Name="ReplayFps30" Grid.Row="1" Grid.Column="2" GroupName="ReplayFps" Content="30fps" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- HDR -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.Hdr}" />
+                        <CheckBox x:Name="HdrCheck" Margin="18,0,18,0" Content="{DynamicResource S.Enable}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Vsync -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource GroupTitle}" Text="{DynamicResource S.VsyncLabel}" />
+                        <Grid Style="{StaticResource GroupBody}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <RadioButton x:Name="VsyncOff" GroupName="Vsync" Content="{DynamicResource S.VsyncOff}" />
+                            <RadioButton x:Name="Vsync1" Grid.Column="1" GroupName="Vsync" Content="{DynamicResource S.Vsync1}" />
+                            <RadioButton x:Name="Vsync2" Grid.Column="2" GroupName="Vsync" Content="{DynamicResource S.Vsync2}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                    <Button Content="{DynamicResource S.Reload}" Height="30" Padding="10,0" Click="ReloadGame_Click" />
+                    <Button Content="{DynamicResource S.SaveToGame}" Height="30" Padding="10,0" Margin="6,0,0,0" Click="SaveDisplay_Click"
+                            AutomationProperties.AutomationId="SaveDisplay" ToolTip="{DynamicResource S.TipSave}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ───── 控制器 (游戏 settings.dat 里的控制器 ↔ 设备) ───── -->
+        <ScrollViewer x:Name="PlayersPage" Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="ModeDInput" GroupName="InputMode" Content="{DynamicResource S.ModeDInput}" Checked="InputMode_Changed" />
+                        <RadioButton x:Name="ModeXInput" GroupName="InputMode" Margin="24,0,0,0" Content="{DynamicResource S.ModeXInput}" Checked="InputMode_Changed" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel x:Name="PlayersPanel">
+                        <ItemsControl x:Name="PlayerList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="90" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" DisplayMemberPath="Label"
+                                                  SelectedItem="{Binding Selected, Mode=TwoWay}" SelectionChanged="PlayerDevice_Changed" />
+                                        <Ellipse Grid.Column="2" Style="{StaticResource ActivityDot}" Margin="12,0,4,0" ToolTip="{DynamicResource S.TipActivity}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="ConflictText" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                    <Button x:Name="OneClickButton" Content="{DynamicResource S.OneClick}" Height="30" Padding="10,0" Click="OneClick_Click" AutomationProperties.AutomationId="OneClick" />
+                    <Button Content="{DynamicResource S.Reload}" Height="30" Padding="10,0" Margin="6,0,0,0" Click="ReloadGame_Click" />
+                    <Button Content="{DynamicResource S.SaveToGame}" Height="30" Padding="10,0" Margin="6,0,0,0" Click="SavePlayers_Click"
+                            AutomationProperties.AutomationId="SavePlayers" ToolTip="{DynamicResource S.TipSave}" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

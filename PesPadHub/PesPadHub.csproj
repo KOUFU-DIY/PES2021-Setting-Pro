@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>PES 2021 Setting Pro</AssemblyName>
+    <Product>PES 2021 Setting Pro</Product>
+    <!-- 版本号: 发布新版时只改这里 (release.ps1 会读它打 tag); 程序启动时拿它和 GitHub 最新 Release 比较 -->
+    <Version>1.0.0</Version>
+    <RootNamespace>PesPadHub</RootNamespace>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- WPF0001: .NET 9 的 Fluent 主题 (ThemeMode) 仍标记为预览 API -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <DebugType>embedded</DebugType>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms 只用于托盘图标, 去掉它的全局 using 以免和 WPF 类型重名 -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 游戏内震动插件 (C++ 写的 dinput8.dll, 用 RumbleBridge\build.bat 编译) 内嵌进程序, 由界面上的安装按钮释放到游戏目录 -->
+    <EmbeddedResource Include="RumbleBridge\bin\dinput8.dll" LogicalName="PesPadHub.dinput8.dll" Condition="Exists('RumbleBridge\bin\dinput8.dll')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+    <PackageReference Include="ppy.SDL3-CS" Version="2026.1002.1" />
+  </ItemGroup>
+
+</Project>

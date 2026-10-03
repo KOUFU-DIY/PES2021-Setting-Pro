@@ -1,0 +1,13 @@
+# 编译输出
+bin/
+obj/
+dist/
+RumbleBridge/bin/
+RumbleBridge/build/
+*.user
+*.suo
+.vs/
+
+# 临时文件
+*.log
+*.bak
