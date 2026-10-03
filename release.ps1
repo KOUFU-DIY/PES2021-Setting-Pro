@@ -22,10 +22,8 @@ if (git status --porcelain) { throw "还有未提交的改动, 先提交再发�
 if (git tag -l $tag) { throw "tag $tag 已存在; 先改 csproj 里的 <Version>。" }
 
 # 震动插件 (C++), 没有 VS 编译环境时跳过, exe 里就不带插件
-if (Test-Path PesPadHub\RumbleBridge\build.bat) {
-    Push-Location PesPadHub\RumbleBridge
-    try { cmd /c build.bat | Out-Host } finally { Pop-Location }
-}
+cmd /c "`"$PSScriptRoot\PesPadHub\RumbleBridge\build.bat`"" | Out-Host
+if (-not (Test-Path PesPadHub\RumbleBridge\bin\dinput8.dll)) { throw "震动插件没编译出来 (需要 Visual Studio C++ 生成工具)。" }
 
 Get-Process 'PES 2021 Setting Pro' -ErrorAction SilentlyContinue | Stop-Process -Confirm:$false
 Start-Sleep 2
