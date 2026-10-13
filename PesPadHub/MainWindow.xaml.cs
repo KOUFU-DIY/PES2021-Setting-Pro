@@ -26,6 +26,7 @@ public partial class MainWindow : Window
         SlotList.ItemsSource = _slots;
         WaitingList.ItemsSource = _waiting;
         LanguageBox.SelectedIndex = Loc.Language == Loc.English ? 1 : 0;
+        TriggerRumbleBox.SelectedIndex = _hub.TriggerRumble;
         _initialized = true;
 
         // 事件来自后台线程, 统一切回界面线程处理
@@ -185,6 +186,11 @@ public partial class MainWindow : Window
             _applying = true;
             try { AutoStartCheck.IsChecked = AutoStart.IsEnabled; } finally { _applying = false; }
         }
+    }
+
+    void TriggerRumble_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initialized && TriggerRumbleBox.SelectedIndex >= 0) _hub.SetTriggerRumble(TriggerRumbleBox.SelectedIndex);
     }
 
     void Language_Changed(object sender, SelectionChangedEventArgs e)

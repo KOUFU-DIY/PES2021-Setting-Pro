@@ -193,6 +193,10 @@ const EffectType* FindEffectType(REFGUID guid)
     return nullptr;
 }
 
+// 两段式震动的参数, 取自 XInput 下的实测: 大马达那段 58~61 毫秒 (偶尔 75), 小马达那段 205~210 毫秒
+const ULONGLONG kShortPulseMs = 110;
+const ULONGLONG kSmallTailMs = 210;
+
 const DWORD kEffectParams = DIEP_DURATION | DIEP_SAMPLEPERIOD | DIEP_GAIN | DIEP_TRIGGERBUTTON | DIEP_TRIGGERREPEATINTERVAL
                           | DIEP_AXES | DIEP_DIRECTION | DIEP_ENVELOPE | DIEP_TYPESPECIFICPARAMS | DIEP_STARTDELAY;
 
@@ -563,10 +567,15 @@ public:
         if (m_paused || !m_actuatorsOn) return;
         double sum[2] = { 0, 0 };
         for (Effect* e : m_effects) e->AddOutput(now, sum);
+        if (now < m_smallTailUntil) sum[1] = 1.0;
         double gain = m_gain / (double)DI_FFNOMINALMAX;
         motors[0] = std::max(motors[0], std::min(1.0, sum[0] * gain));
         motors[1] = std::max(motors[1], std::min(1.0, sum[1] * gain));
     }
+
+    /// 补上游戏在 DirectInput 下没发的那段小马达震动 (见 Effect::Stop)。
+    void StartSmallTail() { m_smallTailUntil = GetTickCount64() + kSmallTailMs; }
+    void CancelSmallTail() { m_smallTailUntil = 0; }
 
 private:
     ~Device() = default;
@@ -622,6 +631,7 @@ private:
     {
         std::lock_guard<std::recursive_mutex> lock(g_mutex);
         for (Effect* e : m_effects) e->ForceStop();
+        m_smallTailUntil = 0;
         PublishOutputs();
     }
 
@@ -633,6 +643,7 @@ private:
     bool m_paused = false;
     bool m_actuatorsOn = true;
     HRESULT m_lastAcquireError = S_OK;
+    ULONGLONG m_smallTailUntil = 0; // 补的那段小马达震动到什么时候为止 (GetTickCount64)
     std::vector<Effect*> m_effects;
     BYTE m_propBuffer[1024];
 };
@@ -764,6 +775,7 @@ STDMETHODIMP Effect::Start(DWORD iterations, DWORD flags)
     m_iterations = iterations == 0 ? 1 : iterations;
     m_startTick = GetTickCount64();
     m_playing = true;
+    m_device->CancelSmallTail();    // 新的事件盖掉上一次的尾巴, 和 XInput 下新值直接覆盖旧值一样
     Log("slot %d: effect %p Start iterations=%lu flags=0x%lX", m_device->Slot() + 1, this, iterations, flags);
     PublishOutputs();
     return DI_OK;
@@ -772,7 +784,17 @@ STDMETHODIMP Effect::Start(DWORD iterations, DWORD flags)
 STDMETHODIMP Effect::Stop()
 {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
-    if (m_playing) Log("slot %d: effect %p Stop", m_device->Slot() + 1, this);
+    if (m_playing) {
+        // PES 2021 校准 (2026-10-05): XInput 下有一种两段式震动 "大马达 100% 约 60 毫秒 → 小马达 100% 约 210 毫秒"
+        // (61 次短促的大马达 100% 后面无一例外都跟着这段小马达); DirectInput 下游戏只发了前一段 (强度 10000、
+        // 约 50 毫秒就停), 后一段没有。所以满强度的短促脉冲一停, 就由我们补上小马达那一段。
+        ULONGLONG elapsed = GetTickCount64() - m_startTick;
+        bool fullPulse = m_type->kind == EffectKind::Constant && m_typeParams.size() >= sizeof(DICONSTANTFORCE)
+                      && std::labs((long)((const DICONSTANTFORCE*)m_typeParams.data())->lMagnitude) >= DI_FFNOMINALMAX
+                      && m_gain >= DI_FFNOMINALMAX;
+        if (fullPulse && elapsed <= kShortPulseMs) m_device->StartSmallTail();
+        Log("slot %d: effect %p Stop%s", m_device->Slot() + 1, this, fullPulse && elapsed <= kShortPulseMs ? " (short full pulse: small motor tail)" : "");
+    }
     m_playing = false;
     PublishOutputs();
     return DI_OK;
@@ -806,18 +828,12 @@ void Effect::AddOutput(ULONGLONG now, double motors[2])
     if (m_duration != INFINITE && m_duration > 0) position = std::fmod(elapsedUs, (double)m_duration) / m_duration;
 
     double level = 0;
-    bool smallMotorOnly = false;
     switch (m_type->kind) {
     case EffectKind::Constant:
-        if (m_typeParams.size() >= sizeof(DICONSTANTFORCE)) {
-            level = ((const DICONSTANTFORCE*)m_typeParams.data())->lMagnitude;
-            // PES 2021 校准 (2026-10-03, 用同一局游戏在 XInput 模式下的记录对照):
-            // 游戏在 DirectInput 下只给一个强度, 不区分马达。XInput 下它给大马达的只有 10/40/90/100%,
-            // 给小马达的只有 30/40/60/100%, 所以 30% 和 60% 必定是小马达的事件;
-            // 40% 和 100% 两种马达都有可能, 按出现得多的大马达处理; 其余按大马达。
-            long magnitude = std::labs((long)level);
-            smallMotorOnly = magnitude == 3000 || magnitude == 6000;
-        }
+        // PES 2021 校准 (2026-10-05, XInput 159 次事件对 DirectInput 约 770 次事件):
+        // 游戏在 DirectInput 下给的强度就是 XInput 下大马达的值 (10/40/90/100% 等), 小马达那一路它根本不发。
+        // 所以这里的强度一律给大马达 (下面按轴和方向算出来的也正是大马达); 丢掉的小马达部分见 Effect::Stop。
+        if (m_typeParams.size() >= sizeof(DICONSTANTFORCE)) level = ((const DICONSTANTFORCE*)m_typeParams.data())->lMagnitude;
         break;
     case EffectKind::Ramp:
         if (m_typeParams.size() >= sizeof(DIRAMPFORCE)) {
@@ -838,9 +854,7 @@ void Effect::AddOutput(ULONGLONG now, double motors[2])
     // 把力分到两个马达上。单轴效果: 那根轴对应的马达; 双轴效果: 按方向在两根轴上的分量;
     // 认不出轴或方向为零时两个马达一起震。
     double weight[2] = { 1, 1 };
-    if (smallMotorOnly) {
-        weight[0] = 0;
-    } else if (m_axes.size() == 1) {
+    if (m_axes.size() == 1) {
         if (m_axisMotor[0] == 0) weight[1] = 0;
         else if (m_axisMotor[0] == 1) weight[0] = 0;
     } else if (m_axes.size() >= 2 && !m_direction.empty()) {

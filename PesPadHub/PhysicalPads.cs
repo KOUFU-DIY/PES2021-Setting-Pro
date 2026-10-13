@@ -78,10 +78,31 @@ sealed unsafe class PhysicalPad
             SDL_GetGamepadAxis(_handle, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
     }
 
+    /// <summary>
+    /// 扳机震动强度 (百分比, 0 = 不用)。游戏只给大、小两个马达的强度, 而且这个游戏的震动不分左右,
+    /// 所以带扳机马达的手柄 (Xbox One / Series 这类) 两个扳机一起震, 只跟大马达; 小马达震的时候扳机不动。
+    /// </summary>
+    public static volatile int TriggerRumblePercent;
+
+    bool _triggersRumbling;
+
+    /// <summary>最近一次让扳机马达震动时手柄有没有接受 (没有扳机马达的手柄不接受)。</summary>
+    public bool TriggerRumbleWorked { get; private set; }
+
     // 游戏不主动停止时最多震 5 秒, 避免工具或游戏异常退出后手柄一直震
     public void Rumble(byte large, byte small, uint durationMs = 5000)
     {
         SDL_RumbleGamepad(_handle, (ushort)(large * 257), (ushort)(small * 257), durationMs);
+
+        ushort triggers = (ushort)(large * 257 * TriggerRumblePercent / 100);
+        bool wanted = triggers != 0;
+        // 手柄没有扳机马达时 SDL 直接返回失败, 不用另外判断; 之前震着的要补一次 0 让它停下
+        if (wanted || _triggersRumbling)
+        {
+            bool ok = SDL_RumbleGamepadTriggers(_handle, triggers, triggers, durationMs);
+            if (wanted) TriggerRumbleWorked = ok;
+        }
+        _triggersRumbling = wanted;
     }
 
     public void Close() => SDL_CloseGamepad(_handle);

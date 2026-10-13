@@ -85,11 +85,23 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <CheckBox x:Name="AutoStartCheck" VerticalAlignment="Center" Content="{DynamicResource S.AutoStart}"
                       Checked="AutoStart_Toggled" Unchecked="AutoStart_Toggled" AutomationProperties.AutomationId="AutoStart"
                       ToolTip="{DynamicResource S.TrayNote}" />
-            <ComboBox x:Name="LanguageBox" Grid.Column="1" MinWidth="120" VerticalAlignment="Center"
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,12,0" ToolTip="{DynamicResource S.TipTriggerRumble}">
+                <TextBlock Text="{DynamicResource S.TriggerRumble}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ComboBox x:Name="TriggerRumbleBox" MinWidth="80" VerticalAlignment="Center" SelectionChanged="TriggerRumble_Changed"
+                          AutomationProperties.AutomationId="TriggerRumble" AutomationProperties.Name="{DynamicResource S.TriggerRumble}">
+                    <ComboBoxItem Content="{DynamicResource S.LevelOff}" />
+                    <ComboBoxItem Content="{DynamicResource S.LevelVeryLow}" />
+                    <ComboBoxItem Content="{DynamicResource S.LevelLow}" />
+                    <ComboBoxItem Content="{DynamicResource S.LevelMid}" />
+                    <ComboBoxItem Content="{DynamicResource S.LevelHigh}" />
+                </ComboBox>
+            </StackPanel>
+            <ComboBox x:Name="LanguageBox" Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
                       SelectionChanged="Language_Changed" ToolTip="{DynamicResource S.TipLanguage}"
                       AutomationProperties.Name="{DynamicResource S.TipLanguage}">
                 <ComboBoxItem Content="简体中文" Tag="zh" />

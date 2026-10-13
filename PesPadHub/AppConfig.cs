@@ -31,6 +31,8 @@ sealed class AppConfig
     public string? GameDirectory { get; set; }
     /// <summary>用户点过 "忽略" 的新版本 tag (如 "v1.2.0"), 这个版本不再提示。</summary>
     public string? SkippedUpdate { get; set; }
+    /// <summary>扳机震动强度 (百分比): 0 关闭, 默认 20 (极弱)。界面上的档位见 PadHub.TriggerRumbleLevels。</summary>
+    public int TriggerRumblePercent { get; set; } = 20;
 
     public static AppConfig Load()
     {

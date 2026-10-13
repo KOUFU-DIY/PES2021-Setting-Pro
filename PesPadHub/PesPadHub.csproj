@@ -5,7 +5,7 @@
     <AssemblyName>PES 2021 Setting Pro</AssemblyName>
     <Product>PES 2021 Setting Pro</Product>
     <!-- 版本号: 发布新版时只改这里 (release.ps1 会读它打 tag); 程序启动时拿它和 GitHub 最新 Release 比较 -->
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <RootNamespace>PesPadHub</RootNamespace>
     <TargetFramework>net9.0-windows</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

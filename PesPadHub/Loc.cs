@@ -96,6 +96,16 @@ static class Loc
                               "Controller {0}'s physical device \"{1}\" is also mapped to virtual controller {2} (controller {3}); both would receive the same input"),
         ["ConflictSaveAnyway"] = ("存在冲突：\n{0}\n\n仍然保存吗？", "There are conflicts:\n{0}\n\nSave anyway?"),
         ["PlayersSaved"] = ("已保存。下次启动游戏生效。", "Saved. It takes effect the next time the game starts."),
+        ["TriggerRumble"] = ("扳机震动", "Trigger rumble"),
+        ["TipTriggerRumble"] = ("让手柄的两个扳机马达跟着游戏的震动一起震（Xbox One / Series 这类带扳机马达的手柄才有效）。两个扳机强度相同，只跟大马达；小马达震动时扳机不动。选好后点某个序号的“震动”可以直接试。",
+                                "Makes both trigger motors follow the game's rumble (only controllers with trigger motors, such as Xbox One / Series). Both triggers get the same strength and follow the large motor only; they stay still when only the small motor runs. Use a slot's Rumble button to try it."),
+        ["LogTriggerRumbleOk"] = ("扳机震动：{0} 支持", "Trigger rumble: {0} supports it"),
+        ["LogTriggerRumbleNo"] = ("扳机震动：{0} 不支持（没有扳机马达，或当前连接方式下系统不提供）", "Trigger rumble: {0} does not support it (no trigger motors, or not available over this connection)"),
+        ["LevelOff"] = ("关闭", "Off"),
+        ["LevelVeryLow"] = ("极弱", "Very low"),
+        ["LevelLow"] = ("弱", "Low"),
+        ["LevelMid"] = ("中", "Medium"),
+        ["LevelHigh"] = ("强", "High"),
         ["NoVirtualPads"] = ("当前没有虚拟手柄（总开关已关闭或还在创建中），没有可写入的映射。", "No virtual controllers are present right now (master switch off or still starting), so there is nothing to write."),
 
         // 官方设置

@@ -41,6 +41,7 @@ sealed unsafe class PadHub
     readonly AppConfig _config;
     readonly int _demoPads;
     volatile bool _running = true;
+    volatile int _triggerRumble;
 
     readonly VirtualPad?[] _slots = new VirtualPad?[SlotCount];
     readonly PhysicalPad?[] _mapped = new PhysicalPad?[SlotCount];
@@ -76,6 +77,8 @@ sealed unsafe class PadHub
     {
         _config = config;
         _demoPads = demoPads;
+        _triggerRumble = NearestTriggerRumbleLevel(config.TriggerRumblePercent);
+        PhysicalPad.TriggerRumblePercent = TriggerRumbleLevels[_triggerRumble];
         _snapshot = BuildSnapshot();
         _thread = new Thread(Run) { Name = "PadHub", IsBackground = true };
     }
@@ -93,11 +96,22 @@ sealed unsafe class PadHub
     public void SwapSlots(int a, int b) => _commands.Enqueue(() => DoSwapSlots(a, b));
     public void AssignPad(uint padId, int slot) => _commands.Enqueue(() => DoAssignPad((SDL_JoystickID)padId, slot));
     public void TogglePin(int slot) => _commands.Enqueue(() => DoTogglePin(slot));
-    public void Identify(int slot) => _commands.Enqueue(() => _mapped[slot]?.Rumble(200, 200, 500));
+    public void Identify(int slot) => _commands.Enqueue(() =>
+    {
+        if (_mapped[slot] is { } pad) DoIdentify(pad);
+    });
     public void IdentifyPad(uint padId) => _commands.Enqueue(() =>
     {
-        if (_pads.TryGetValue((SDL_JoystickID)padId, out PhysicalPad? pad)) pad.Rumble(200, 200, 500);
+        if (_pads.TryGetValue((SDL_JoystickID)padId, out PhysicalPad? pad)) DoIdentify(pad);
     });
+
+    /// <summary>让一个实体手柄震一下。开着扳机震动时顺便在日志里说明这个手柄支不支持, 方便用户试。</summary>
+    void DoIdentify(PhysicalPad pad)
+    {
+        pad.Rumble(200, 200, 500);
+        if (PhysicalPad.TriggerRumblePercent > 0)
+            WriteLog(Loc.T(pad.TriggerRumbleWorked ? "LogTriggerRumbleOk" : "LogTriggerRumbleNo", pad.Name));
+    }
 
     /// <summary>上次安装震动插件时选的游戏文件夹 (配置归后台线程管, 这里只是记一下)。</summary>
     public string? GameDirectory => _config.GameDirectory;
@@ -107,6 +121,37 @@ sealed unsafe class PadHub
         _config.GameDirectory = directory;
         _config.Save();
     });
+
+    /// <summary>
+    /// 扳机震动各档位对应的强度百分比 (下标 = 界面上的档位: 关闭 / 极弱 / 弱 / 中 / 强)。
+    /// 配置里存的是百分比本身, 以后增减档位不会让已存的设置变成别的档。
+    /// </summary>
+    static readonly int[] TriggerRumbleLevels = [0, 20, 35, 65, 100];
+
+    /// <summary>当前档位 (TriggerRumbleLevels 的下标)。</summary>
+    public int TriggerRumble => _triggerRumble;
+
+    public void SetTriggerRumble(int level)
+    {
+        level = Math.Clamp(level, 0, TriggerRumbleLevels.Length - 1);
+        int percent = TriggerRumbleLevels[level];
+        _triggerRumble = level;
+        PhysicalPad.TriggerRumblePercent = percent;
+        _commands.Enqueue(() =>
+        {
+            _config.TriggerRumblePercent = percent;
+            _config.Save();
+        });
+    }
+
+    /// <summary>离给定百分比最近的档位。</summary>
+    static int NearestTriggerRumbleLevel(int percent)
+    {
+        int best = 0;
+        for (int i = 1; i < TriggerRumbleLevels.Length; i++)
+            if (Math.Abs(TriggerRumbleLevels[i] - percent) < Math.Abs(TriggerRumbleLevels[best] - percent)) best = i;
+        return best;
+    }
 
     public string? SkippedUpdate => _config.SkippedUpdate;
 
