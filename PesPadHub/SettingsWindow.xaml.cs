@@ -8,7 +8,39 @@ using System.Windows.Threading;
 namespace PesPadHub;
 
 /// <summary>控制器页里可选的一个设备。</summary>
-sealed record DeviceChoice(Guid Instance, string Label, int VirtualNumber, string PadId, string Name);
+sealed class DeviceChoice(Guid instance, string label, int virtualNumber, string padId, string name, bool present) : INotifyPropertyChanged
+{
+    bool _active;
+
+    public Guid Instance { get; } = instance;
+    public string Label { get; } = label;
+    /// <summary>是第几个虚拟手柄 (1~8), 实体设备为 0。</summary>
+    public int VirtualNumber { get; } = virtualNumber;
+    /// <summary>型号, 以 VID:PID 表示。</summary>
+    public string PadId { get; } = padId;
+    public string Name { get; } = name;
+    /// <summary>设备现在接着, 能读到它的输入 (下拉列表里给它画指示灯)。</summary>
+    public bool Present { get; } = present;
+    /// <summary>设备的接口路径, 用来认出它是不是正接在某个序号上的那个手柄; 读不到为空。</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>这个设备现在有人在按。</summary>
+    public bool Active
+    {
+        get => _active;
+        set
+        {
+            if (_active == value) return;
+            _active = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Active)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>读屏软件和界面自动化看到的名字。</summary>
+    public override string ToString() => Label;
+}
 
 /// <summary>控制器页的一行: 游戏内第 N 个控制器用哪个设备。</summary>
 sealed class PlayerViewModel(int index) : INotifyPropertyChanged
@@ -85,6 +117,10 @@ public partial class SettingsWindow : Window
 
     readonly PadHub _hub;
     readonly PlayerViewModel[] _players = Enumerable.Range(0, GameSettingsFile.PlayerCount).Select(i => new PlayerViewModel(i)).ToArray();
+    /// <summary>直接按设备读输入, 给指示灯用 (同型号的手柄也分得清, 总开关关着时也能用)。</summary>
+    readonly DirectInputPoller _poller;
+    /// <summary>当前列出来的设备 (各行的下拉框共用这些对象)。</summary>
+    List<DeviceChoice> _choices = [];
     readonly DispatcherTimer _activityTimer;
     readonly DispatcherTimer _deviceRefresh;
     readonly Action _onHubChanged;
@@ -101,6 +137,8 @@ public partial class SettingsWindow : Window
         _hub = hub;
         PlayerList.ItemsSource = _players;
         _wasReady = _hub.Snapshot.Ready;
+        // 指示灯直接用 DirectInput 按设备读, 设置协作方式时要用到本窗口的句柄
+        _poller = new DirectInputPoller(new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle());
         Reload();
 
         // 总开关切换时虚拟手柄整批出现/消失, 刷新可选设备但保留用户已选的; 其余快照只影响冲突判断
@@ -150,6 +188,7 @@ public partial class SettingsWindow : Window
     {
         _activityTimer.Stop();
         _deviceRefresh.Stop();
+        _poller.Dispose();
         _hub.Changed -= _onHubChanged;
         Loc.Changed -= _onLanguageChanged;
         base.OnClosed(e);
@@ -215,14 +254,10 @@ public partial class SettingsWindow : Window
 
     void UpdateActivity()
     {
-        // 选了虚拟手柄的看对应序号, 选了实体手柄的按 VID:PID 看那个手柄本身
-        int active = _hub.ActivityMask;
-        string[] activePads = _hub.ActivePadIds;
-        foreach (PlayerViewModel p in _players)
-        {
-            DeviceChoice? c = p.Selected;
-            p.Active = c != null && (c.VirtualNumber > 0 ? (active & (1 << (c.VirtualNumber - 1))) != 0 : c.PadId != "" && activePads.Contains(c.PadId));
-        }
+        // 每个设备按它自己读 (和游戏一样按实例认), 同型号的几个手柄也分得清; 总开关关着时照样有指示
+        HashSet<Guid> active = _poller.ActiveDevices();
+        foreach (DeviceChoice c in _choices) c.Active = c.Present && active.Contains(c.Instance);
+        foreach (PlayerViewModel p in _players) p.Active = p.Selected?.Active == true;
     }
 
     // ── 控制器页 ──
@@ -235,18 +270,33 @@ public partial class SettingsWindow : Window
     {
         List<DirectInputDevice> devices = DirectInputDevices.Enumerate();
         if (!_hub.Snapshot.Ready) devices.RemoveAll(d => d.VirtualNumber > 0);    // 正在移除中的也不算
-        var choices = new List<DeviceChoice> { new(Guid.Empty, Loc.T("DeviceNone"), 0, "", "") };
+        var choices = new List<DeviceChoice> { new(Guid.Empty, Loc.T("DeviceNone"), 0, "", "", false) };
         for (int n = 1; n <= PadHub.SlotCount; n++)
         {
             ushort pid = VirtualPad.PidFor(n);
             if (devices.FirstOrDefault(d => d.VirtualNumber == n) is { } d)
-                choices.Add(new DeviceChoice(d.Instance, Loc.T("DeviceVirtual", n), n, $"{d.Vid:X4}:{d.Pid:X4}", d.Name));
+                choices.Add(new DeviceChoice(d.Instance, Loc.T("DeviceVirtual", n), n, $"{d.Vid:X4}:{d.Pid:X4}", d.Name, true));
             else if (DirectInputDevices.RememberedInstance(VirtualPad.VendorId, pid) is { } remembered)
-                choices.Add(new DeviceChoice(remembered, Loc.T("DeviceVirtualOff", n), n, $"{VirtualPad.VendorId:X4}:{pid:X4}", VirtualPad.NameFor(n)));
+                choices.Add(new DeviceChoice(remembered, Loc.T("DeviceVirtualOff", n), n, $"{VirtualPad.VendorId:X4}:{pid:X4}", VirtualPad.NameFor(n), false));
         }
-        foreach (DirectInputDevice d in devices.Where(d => d.VirtualNumber == 0).OrderBy(d => d.Name))
-            choices.Add(new DeviceChoice(d.Instance, $"{d.Name}  [{d.Vid:X4}:{d.Pid:X4}]", 0, $"{d.Vid:X4}:{d.Pid:X4}", d.Name));
+        // 同型号的手柄名字一样, 名字后面按系统列出的顺序加上 A、B、C… 区分; 哪个是哪个, 看下拉列表里亮的指示灯
+        bool sameModel = false;
+        foreach (IGrouping<string, DirectInputDevice> group in devices.Where(d => d.VirtualNumber == 0).OrderBy(d => d.Name).GroupBy(d => d.Name))
+        {
+            int count = group.Count(), letter = 0;
+            sameModel |= count > 1;
+            foreach (DirectInputDevice d in group)
+            {
+                string id = $"{d.Vid:X4}:{d.Pid:X4}";
+                string label = count > 1 ? $"{d.Name} · {(char)('A' + letter++)}  [{id}]" : $"{d.Name}  [{id}]";
+                choices.Add(new DeviceChoice(d.Instance, label, 0, id, d.Name, true));
+            }
+        }
+        SameModelHint.Visibility = sameModel ? Visibility.Visible : Visibility.Collapsed;
         OneClickButton.IsEnabled = choices.Any(c => c.VirtualNumber > 0);
+        _choices = choices;
+        _poller.SetDevices(choices.Where(c => c.Present).Select(c => c.Instance));
+        foreach (DeviceChoice c in choices) c.Path = _poller.PathOf(c.Instance);
 
         if (_game != null && !keepSelection)
         {
@@ -264,7 +314,7 @@ public partial class SettingsWindow : Window
             if (match == null && current != Guid.Empty)
             {
                 // 文件里记的设备现在没接着: 保留显示, 不保存时不动它
-                match = new DeviceChoice(current, Loc.T("DeviceUnknown", current.ToString("B").ToUpperInvariant()), 0, "", "");
+                match = new DeviceChoice(current, Loc.T("DeviceUnknown", current.ToString("B").ToUpperInvariant()), 0, "", "", false);
                 p.Choices.Add(match);
             }
             p.Selected = match ?? p.Choices[0];
@@ -303,16 +353,27 @@ public partial class SettingsWindow : Window
                     problems.Add(Loc.T("ConflictDuplicate", i + 1, j + 1));
 
             if (a.VirtualNumber != 0 || a.PadId == "") continue;
-            // 这个实体手柄是否正映射到某个虚拟手柄 (按 VID:PID 对应), 而那个虚拟手柄又被别的控制器选了
+            // 这个实体手柄是否正映射到某个虚拟手柄, 而那个虚拟手柄又被别的控制器选了
             for (int slot = 0; slot < PadHub.SlotCount; slot++)
             {
-                if (!snapshot.Slots[slot].Connected || snapshot.Slots[slot].PadId != a.PadId) continue;
+                if (!snapshot.Slots[slot].Connected || !SamePad(a, snapshot.Slots[slot])) continue;
                 for (int j = 0; j < _players.Length; j++)
                     if (j != i && _players[j].Selected is { } b && b.VirtualNumber == slot + 1)
                         problems.Add(Loc.T("ConflictMapped", i + 1, a.Name, slot + 1, j + 1));
             }
         }
         return problems;
+    }
+
+    /// <summary>
+    /// 控制器页里的一个实体设备 (DirectInput) 是不是正接在某个序号上的那个手柄 (SDL)。两边报的设备路径是同一个东西, 能比就按路径比;
+    /// 比不了时只能按型号 (VID:PID) 认, 同型号的设备不止一个时认不出是哪一个, 宁可不报冲突也不乱报。
+    /// </summary>
+    bool SamePad(DeviceChoice device, SlotSnapshot slot)
+    {
+        if (device.Path.Length > 0 && slot.PadPath is { Length: > 0 } path && path.Contains("vid_", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(device.Path, path, StringComparison.OrdinalIgnoreCase);
+        return device.PadId == slot.PadId && _choices.Count(c => c.VirtualNumber == 0 && c.PadId == device.PadId) == 1;
     }
 
     void UpdateConflicts()

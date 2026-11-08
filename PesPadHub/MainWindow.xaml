@@ -195,21 +195,51 @@
                                         <TextBlock Text="{Binding PadText}" Opacity="0.7" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
-                                    <!-- 震动指示: 游戏让这个手柄震动时亮起 -->
-                                    <TextBlock Grid.Column="3" Text="&#xE877;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
-                                               Margin="0,0,10,0" VerticalAlignment="Center" ToolTip="{DynamicResource S.TipRumbleIndicator}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Opacity" Value="0.2" />
+                                    <!-- 震动开关兼指示: 点一下单独开关这个序号的震动; 开着时游戏让它震动就亮起, 关掉时图标上有一道斜线 -->
+                                    <Button Grid.Column="3" Margin="0,0,10,0" Click="RumbleToggle_Click"
+                                            AutomationProperties.AutomationId="RumbleToggle" AutomationProperties.Name="{DynamicResource S.RumbleSwitch}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                                <Setter Property="ToolTip" Value="{DynamicResource S.TipRumbleOn}" />
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Rumbling}" Value="True">
-                                                        <Setter Property="Opacity" Value="1" />
-                                                        <Setter Property="Foreground" Value="{StaticResource GoBrush}" />
+                                                    <DataTrigger Binding="{Binding RumbleOn}" Value="False">
+                                                        <Setter Property="ToolTip" Value="{DynamicResource S.TipRumbleOff}" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                        </Button.Style>
+                                        <Grid Width="20" Height="20">
+                                            <TextBlock Text="&#xE877;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Opacity" Value="0.45" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Rumbling}" Value="True">
+                                                                <Setter Property="Opacity" Value="1" />
+                                                                <Setter Property="Foreground" Value="{StaticResource GoBrush}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding RumbleOn}" Value="False">
+                                                                <Setter Property="Opacity" Value="0.3" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Line X1="3" Y1="3" X2="17" Y2="17" Stroke="#E5484D" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                                <Line.Style>
+                                                    <Style TargetType="Line">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RumbleOn}" Value="False">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Line.Style>
+                                            </Line>
+                                        </Grid>
+                                    </Button>
 
                                     <!-- 输入指示灯: 对应的实体手柄有按键/摇杆动作时亮起 -->
                                     <Ellipse Grid.Column="4" Style="{StaticResource ActivityDot}" Margin="0,0,10,0" ToolTip="{DynamicResource S.TipActivity}" />

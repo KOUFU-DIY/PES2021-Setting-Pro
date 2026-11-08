@@ -35,6 +35,8 @@ sealed unsafe class PhysicalPad
     public ushort Pid { get; }
     /// <summary>同一个实体手柄重插后用它找回原来的槽位。</summary>
     public string AffinityKey { get; }
+    /// <summary>系统给出了序列号; 没有时同型号的手柄只能靠设备路径区分。</summary>
+    public bool HasSerial { get; }
     public int Slot { get; set; } = -1;
     public PadState LastState { get; set; }
     /// <summary>换槽位后即使输入没变也要把当前状态重新提交一次。</summary>
@@ -52,7 +54,8 @@ sealed unsafe class PhysicalPad
         Vid = SDL_GetGamepadVendor(handle);
         Pid = SDL_GetGamepadProduct(handle);
         string? serial = SDL_GetGamepadSerial(handle);
-        AffinityKey = !string.IsNullOrEmpty(serial) ? $"{Vid:X4}:{Pid:X4}:{serial}" : $"{Vid:X4}:{Pid:X4}:{Path}";
+        HasSerial = !string.IsNullOrEmpty(serial);
+        AffinityKey = HasSerial ? $"{Vid:X4}:{Pid:X4}:{serial}" : $"{Vid:X4}:{Pid:X4}:{Path}";
     }
 
     public static PhysicalPad? Open(SDL_JoystickID id)

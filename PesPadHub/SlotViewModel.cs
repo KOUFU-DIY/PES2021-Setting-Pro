@@ -7,7 +7,7 @@ namespace PesPadHub;
 sealed class SlotViewModel(int index) : INotifyPropertyChanged
 {
     string _padText = "", _virtualName = "";
-    bool _connected, _pinned, _active, _rumbling, _enabled = true, _ready;
+    bool _connected, _pinned, _active, _rumbling, _enabled = true, _rumbleOn = true, _ready;
 
     public int Index { get; } = index;
     public int Number => Index + 1;
@@ -26,6 +26,8 @@ sealed class SlotViewModel(int index) : INotifyPropertyChanged
     public bool Enabled { get => _enabled; private set => Set(ref _enabled, value); }
     public bool Active { get => _active; set => Set(ref _active, value); }
     public bool Rumbling { get => _rumbling; set => Set(ref _rumbling, value); }
+    /// <summary>这个序号的震动开着。</summary>
+    public bool RumbleOn { get => _rumbleOn; private set => Set(ref _rumbleOn, value); }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -36,6 +38,7 @@ sealed class SlotViewModel(int index) : INotifyPropertyChanged
         Enabled = s.Enabled;
         Connected = s.Connected;
         Pinned = s.Pinned;
+        RumbleOn = s.RumbleOn;
         PadText = s switch
         {
             { Enabled: false } => Loc.T("SlotDisabled"),

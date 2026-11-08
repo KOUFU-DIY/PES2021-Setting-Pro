@@ -230,14 +230,39 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" DisplayMemberPath="Label"
-                                                  SelectedItem="{Binding Selected, Mode=TwoWay}" SelectionChanged="PlayerDevice_Changed" />
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" MaxDropDownHeight="640"
+                                                  SelectedItem="{Binding Selected, Mode=TwoWay}" SelectionChanged="PlayerDevice_Changed">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <!-- 下拉列表里每个设备一个指示灯: 按哪个手柄哪一项就亮, 同型号的几个手柄靠它认; 收起时显示的那一项不画, 行尾已经有一个 -->
+                                                        <Ellipse Width="9" Height="9" Margin="0,0,8,0">
+                                                            <Ellipse.Style>
+                                                                <Style TargetType="Ellipse" BasedOn="{StaticResource ActivityDot}">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Present}" Value="False">
+                                                                            <Setter Property="Visibility" Value="Hidden" />
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ComboBoxItem}}" Value="{x:Null}">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Ellipse.Style>
+                                                        </Ellipse>
+                                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                         <Ellipse Grid.Column="2" Style="{StaticResource ActivityDot}" Margin="12,0,4,0" ToolTip="{DynamicResource S.TipActivity}" />
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <TextBlock x:Name="ConflictText" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SameModelHint" Style="{StaticResource Note}" Margin="0,6,0,0" Visibility="Collapsed"
+                                   Text="{DynamicResource S.SameModelHint}" />
                     </StackPanel>
                 </Border>
                 <StackPanel Orientation="Horizontal" Margin="0,2,0,8">

@@ -227,6 +227,12 @@ public partial class MainWindow : Window
 
     void Identify_Click(object sender, RoutedEventArgs e) => _hub.Identify(SlotOf(sender).Index);
 
+    void RumbleToggle_Click(object sender, RoutedEventArgs e)
+    {
+        SlotViewModel slot = SlotOf(sender);
+        _hub.SetSlotRumble(slot.Index, !slot.RumbleOn);
+    }
+
     /// <summary>"放到…": 弹出 1~8 的菜单, 选一个序号把待分配的手柄放过去。</summary>
     void Assign_Click(object sender, RoutedEventArgs e)
     {

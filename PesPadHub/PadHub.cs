@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Nefarius.ViGEm.Client;
@@ -9,7 +10,9 @@ namespace PesPadHub;
 
 /// <param name="VirtualName">虚拟手柄的设备名, 和游戏/系统里看到的名称一致。</param>
 /// <param name="Enabled">这个槽位没有被单独关闭。</param>
-record SlotSnapshot(string VirtualName, string? PadName, string? PadId, bool Connected, bool Pinned, bool Enabled);
+/// <param name="RumbleOn">这个槽位的震动开着 (游戏让它震动时实体手柄跟着震)。</param>
+/// <param name="PadPath">接在这个槽位上的实体手柄的设备路径 (SDL 报的), 控制器页用它和 DirectInput 设备对上号。</param>
+record SlotSnapshot(string VirtualName, string? PadName, string? PadId, bool Connected, bool Pinned, bool Enabled, bool RumbleOn, string? PadPath);
 
 /// <summary>已接入但没有槽位可放的实体手柄。</summary>
 record WaitingSnapshot(uint Id, string Name, string PadId);
@@ -50,6 +53,8 @@ sealed unsafe class PadHub
     readonly Dictionary<string, int> _sessionAffinity = [];
     readonly List<SDL_JoystickID> _demoIds = [];
     readonly bool[] _driverRumble = new bool[SlotCount];
+    /// <summary>单独关掉了震动的槽位 (配置里 RumbleOffSlots 的副本; 转发循环每毫秒都要查, 所以用数组)。</summary>
+    readonly bool[] _rumbleOff = new bool[SlotCount];
     ViGEmClient? _client;
     RumbleBridgeLink? _bridge;
     bool _ready;
@@ -57,8 +62,6 @@ sealed unsafe class PadHub
     long _neutralizeAt = long.MaxValue;
     volatile HubSnapshot _snapshot;
     int _activityMask, _rumbleMask;
-    string[] _activePadIds = [];
-    readonly List<string> _activePadsScratch = [];
 
     /// <summary>映射或开关状态变化时触发 (在后台线程上)。</summary>
     public event Action? Changed;
@@ -70,13 +73,13 @@ sealed unsafe class PadHub
     public int ActivityMask => Volatile.Read(ref _activityMask);
     /// <summary>第 N 位为 1 表示游戏正在让第 N 个槽位的手柄震动。</summary>
     public int RumbleMask => Volatile.Read(ref _rumbleMask);
-    /// <summary>当前有输入的实体手柄 (含待分配的), 以 VID:PID 表示。</summary>
-    public string[] ActivePadIds => Volatile.Read(ref _activePadIds);
 
     public PadHub(AppConfig config, int demoPads = 0)
     {
         _config = config;
         _demoPads = demoPads;
+        foreach (int slot in config.RumbleOffSlots)
+            if (slot >= 0 && slot < SlotCount) _rumbleOff[slot] = true;
         _triggerRumble = NearestTriggerRumbleLevel(config.TriggerRumblePercent);
         PhysicalPad.TriggerRumblePercent = TriggerRumbleLevels[_triggerRumble];
         _snapshot = BuildSnapshot();
@@ -93,6 +96,7 @@ sealed unsafe class PadHub
 
     public void SetEnabled(bool enabled) => _commands.Enqueue(() => DoSetEnabled(enabled));
     public void SetSlotEnabled(int slot, bool enabled) => _commands.Enqueue(() => DoSetSlotEnabled(slot, enabled));
+    public void SetSlotRumble(int slot, bool on) => _commands.Enqueue(() => DoSetSlotRumble(slot, on));
     public void SwapSlots(int a, int b) => _commands.Enqueue(() => DoSwapSlots(a, b));
     public void AssignPad(uint padId, int slot) => _commands.Enqueue(() => DoAssignPad((SDL_JoystickID)padId, slot));
     public void TogglePin(int slot) => _commands.Enqueue(() => DoTogglePin(slot));
@@ -369,6 +373,26 @@ sealed unsafe class PadHub
         Publish();
     }
 
+    /// <summary>
+    /// 单独开关一个槽位的震动: 关掉后游戏让这个虚拟手柄震动时, 实体手柄 (连同扳机) 不跟着震。
+    /// 设置跟着序号走, 不跟着手柄走; "震动" 辨认按钮不受影响。
+    /// </summary>
+    void DoSetSlotRumble(int slot, bool on)
+    {
+        if (slot < 0 || slot >= SlotCount || _rumbleOff[slot] == !on) return;
+        _rumbleOff[slot] = !on;
+        _config.RumbleOffSlots.Remove(slot);
+        if (!on) _config.RumbleOffSlots.Add(slot);
+        _config.Save();
+        if (!on && _mapped[slot] is { } pad)
+        {
+            pad.Rumble(0, 0);       // 正在震的马上停下
+            pad.BridgeRumble = 0;
+        }
+        WriteLog(Loc.T(on ? "LogRumbleOn" : "LogRumbleOff", slot + 1));
+        Publish();
+    }
+
     void PumpSdlEvents()
     {
         SDL_Event e;
@@ -394,6 +418,10 @@ sealed unsafe class PadHub
             return;
         }
         _pads[id] = pad;
+        // 设备细节只写进日志文件: 排查 "某台电脑上手柄对不上号" 时要看系统给的是哪种路径、有没有序列号
+        WriteLogFile($"  设备：{pad.Name} [{pad.Vid:X4}:{pad.Pid:X4}] 序列号：{(pad.HasSerial ? "有" : "无")} 路径：{pad.Path}");
+        if (_pads.Values.Any(p => p != pad && p.AffinityKey == pad.AffinityKey))
+            WriteLogFile($"  注意：{pad.Name} 和另一个已接入的手柄分不出来 (同型号, 系统没给序列号也没给不同的路径)");
 
         int slot = PlacePad(pad);
         if (slot < 0)
@@ -416,12 +444,14 @@ sealed unsafe class PadHub
     int PlacePad(PhysicalPad pad)
     {
         PinEntry? pin = _config.Pins.Find(p => p.Key == pad.AffinityKey);
-        if (pin != null && SlotEnabled(pin.Slot))
+        // 固定的序号上已经接着一个和它分不出来的手柄 (同型号、系统不给序列号或路径) 时不去抢, 免得两个手柄来回换位
+        if (pin != null && SlotEnabled(pin.Slot) && _mapped[pin.Slot]?.AffinityKey != pad.AffinityKey)
         {
             if (_mapped[pin.Slot] is { } occupant)
             {
                 Detach(pin.Slot);
-                int other = FreeSlot();
+                // 给让位的手柄另找空位时不能算上刚腾出来的这个序号, 否则两个手柄会叠在同一个序号上
+                int other = FreeSlot(except: pin.Slot);
                 if (other >= 0)
                 {
                     Attach(occupant, other);
@@ -440,14 +470,14 @@ sealed unsafe class PadHub
         return FreeSlot();
     }
 
-    /// <summary>序号最小的空槽; 尽量不占用为 "已固定但暂未连接" 的手柄预留的槽位。</summary>
-    int FreeSlot()
+    /// <summary>序号最小的空槽 (except 这个序号除外); 尽量不占用为 "已固定但暂未连接" 的手柄预留的槽位。</summary>
+    int FreeSlot(int except = -1)
     {
         for (int i = 0; i < SlotCount; i++)
-            if (SlotEnabled(i) && _mapped[i] == null && PinAt(i) == null)
+            if (i != except && SlotEnabled(i) && _mapped[i] == null && PinAt(i) == null)
                 return i;
         for (int i = 0; i < SlotCount; i++)
-            if (SlotEnabled(i) && _mapped[i] == null)
+            if (i != except && SlotEnabled(i) && _mapped[i] == null)
                 return i;
         return -1;
     }
@@ -458,6 +488,13 @@ sealed unsafe class PadHub
 
     void Attach(PhysicalPad pad, int slot)
     {
+        // 一个序号只接一个手柄, 一个手柄只占一个序号: 就算调用方没先腾好位置, 也不会叠在一起
+        if (pad.Slot >= 0 && pad.Slot != slot) Release(pad);
+        if (_mapped[slot] is { } occupant && occupant != pad)
+        {
+            occupant.Slot = -1;
+            WriteLog(Loc.T("LogWaiting", occupant.Name));
+        }
         _mapped[slot] = pad;
         pad.Slot = slot;
         pad.ForceSubmit = true;
@@ -473,9 +510,16 @@ sealed unsafe class PadHub
         _slots[slot]?.Submit(default);
     }
 
+    /// <summary>让手柄离开它所在的序号; 只有那个序号上接的确实是它时才清空, 不会误伤别的手柄。</summary>
+    void Release(PhysicalPad pad)
+    {
+        if (pad.Slot >= 0 && _mapped[pad.Slot] == pad) Detach(pad.Slot);
+        pad.Slot = -1;
+    }
+
     void MoveToWaiting(PhysicalPad pad)
     {
-        if (pad.Slot >= 0) Detach(pad.Slot);
+        Release(pad);
         pad.Rumble(0, 0);
     }
 
@@ -497,7 +541,7 @@ sealed unsafe class PadHub
         if (pad.Slot >= 0)
         {
             int slot = pad.Slot;
-            Detach(slot);
+            Release(pad);
             WriteLog(Loc.T("LogRemoved", pad.Name, slot + 1));
             pad.Close();
             FillFreeSlotsFromWaiting();
@@ -521,10 +565,13 @@ sealed unsafe class PadHub
             VirtualPad? slot = _slots[i];
             if (slot == null) continue;
 
-            // 震动有两个来源: 驱动回调 (游戏走 XInput 时) 和游戏进程里的震动插件 (游戏走 DirectInput 时)
-            bool hasRumble = slot.TryTakeRumble(out byte large, out byte small);
+            // 震动有两个来源: 驱动回调 (游戏走 XInput 时) 和游戏进程里的震动插件 (游戏走 DirectInput 时)。
+            // 这个槽位关了震动时, 驱动回调照样取走 (不然会积着), 只是不转给实体手柄, 指示灯也不亮
+            bool rumbleOn = !_rumbleOff[i];
+            bool hasRumble = slot.TryTakeRumble(out byte large, out byte small) && rumbleOn;
             if (hasRumble) _driverRumble[i] = large != 0 || small != 0;
-            (byte bridgeLarge, byte bridgeSmall) = _bridge?.Read(i) ?? default;
+            else if (!rumbleOn) _driverRumble[i] = false;
+            (byte bridgeLarge, byte bridgeSmall) = rumbleOn && _bridge != null ? _bridge.Read(i) : default;
             ushort bridge = (ushort)((bridgeLarge << 8) | bridgeSmall);
             if (_driverRumble[i] || bridge != 0) rumbling |= 1 << i;
 
@@ -545,22 +592,11 @@ sealed unsafe class PadHub
                 pad.BridgeRumble = bridge;
                 pad.BridgeRumbleTick = now;
             }
-            if (IsActive(state))
-            {
-                activity |= 1 << i;
-                _activePadsScratch.Add($"{pad.Vid:X4}:{pad.Pid:X4}");
-            }
+            if (IsActive(state)) activity |= 1 << i;
         }
-        // 待分配的手柄没有槽位, 也读一下, 控制器页里选了它们时才有输入指示
-        foreach (PhysicalPad pad in _pads.Values)
-            if (pad.Slot < 0 && IsActive(pad.Read()))
-                _activePadsScratch.Add($"{pad.Vid:X4}:{pad.Pid:X4}");
 
         Volatile.Write(ref _activityMask, activity);
         Volatile.Write(ref _rumbleMask, rumbling);
-        if (_activePadsScratch.Count > 0 || _activePadIds.Length > 0)
-            Volatile.Write(ref _activePadIds, _activePadsScratch.ToArray());
-        _activePadsScratch.Clear();
     }
 
     static bool IsActive(in PadState s)
@@ -651,7 +687,9 @@ sealed unsafe class PadHub
                 pad == null ? null : $"{pad.Vid:X4}:{pad.Pid:X4}",
                 pad != null,
                 pin != null,
-                SlotEnabled(i));
+                SlotEnabled(i),
+                !_rumbleOff[i],
+                pad?.Path);
         }
         WaitingSnapshot[] waiting = WaitingPads.OrderBy(p => p.Id)
             .Select(p => new WaitingSnapshot((uint)p.Id, p.Name, $"{p.Vid:X4}:{p.Pid:X4}")).ToArray();
@@ -665,7 +703,47 @@ sealed unsafe class PadHub
         Changed?.Invoke();
     }
 
-    void WriteLog(string message) => Log?.Invoke($"{DateTime.Now:HH:mm:ss}  {message}");
+    // 界面上的日志同时追加到 %APPDATA%\PesPadHub\hub.log, 别的电脑上出问题时可以把这个文件发过来
+    const string LogFileName = "hub.log";
+    const long MaxLogFileBytes = 1024 * 1024;
+    readonly object _logFileLock = new();
+    StreamWriter? _logFile;
+    bool _logFileFailed;
+
+    void WriteLog(string message)
+    {
+        string line = $"{DateTime.Now:HH:mm:ss}  {message}";
+        AppendLogFile(line);
+        Log?.Invoke(line);
+    }
+
+    /// <summary>只写进日志文件、界面上不显示的细节。</summary>
+    void WriteLogFile(string message) => AppendLogFile($"{DateTime.Now:HH:mm:ss}  {message}");
+
+    void AppendLogFile(string line)
+    {
+        lock (_logFileLock)
+        {
+            if (_logFileFailed) return;
+            try
+            {
+                if (_logFile == null)
+                {
+                    Directory.CreateDirectory(AppConfig.DataDirectory);
+                    string path = Path.Combine(AppConfig.DataDirectory, LogFileName);
+                    bool tooBig = File.Exists(path) && new FileInfo(path).Length > MaxLogFileBytes;
+                    _logFile = new StreamWriter(path, append: !tooBig) { AutoFlush = true };
+                    _logFile.WriteLine();
+                    _logFile.WriteLine($"======== {DateTime.Now:yyyy-MM-dd HH:mm:ss}  PES 2021 Setting Pro v{UpdateCheck.CurrentText} ========");
+                }
+                _logFile.WriteLine(line);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logFileFailed = true;     // 写不了就算了, 不影响手柄转发
+            }
+        }
+    }
 
     // ── 演示模式 (--demo N): 没有实体手柄时用 SDL 的虚拟摇杆模拟 N 个实体手柄, 用于检查界面和转发链路 ──
 
